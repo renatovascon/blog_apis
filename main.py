@@ -3,13 +3,14 @@ import psycopg2
 import json
 from psycopg2 import sql
 from fastapi.middleware.cors import CORSMiddleware
+from typing import List
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -48,41 +49,6 @@ def get_post_by_id_from_db(post_id: int):
     query = sql.SQL("SELECT * FROM blog.posts WHERE post_id = %s")
     conn = get_connection()
     return execute_query(query, conn)
-
-def insert_post_into_db(payload):
-    try:
-        query = sql.SQL("INSERT INTO blog.posts ({}) VALUES ({})").format(
-            sql.SQL(', ').join(map(sql.Identifier, [
-                'title', 'url', 'slug', 'author_id', 'created', 'published',
-                'updated', 'body', 'summary', 'seo_title', 'meta_description',
-                'status', 'deleted', 'featured_image', 'featured_image_alt'
-            ])),
-            sql.SQL(', ').join(sql.Placeholder() * len(payload))
-        )
-        
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        # Extrai os valores do payload
-        values = [payload[key] for key in [
-            'title', 'url', 'slug', 'author_id', 'created', 'published',
-            'updated', 'body', 'summary', 'seo_title', 'meta_description',
-            'status', 'deleted', 'featured_image', 'featured_image_alt'
-        ]]
-
-        cursor.execute(query, tuple(values))
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-
-        # Após a inserção, você pode retornar o ID do post inserido ou os dados do post
-        # Aqui, estou retornando o ID do último post inserido
-        return cursor.lastrowid
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 def get_categories_from_db():
     query = "SELECT * FROM blog.categories"
@@ -151,68 +117,6 @@ def get_post_by_id_from_db(post_id: int):
         # Em caso de erro, retorne uma resposta de erro com status 500
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/post/create")
-async def post_create(request: Request):
-    body = await request.body()
-    print(body)
-    try:
-        # Conecta-se ao banco de dados PostgreSQL
-        conn = psycopg2.connect(**db_connection_tokapi)
-        cursor = conn.cursor()
-
-        # Decodifica o payload JSON da solicitação
-        body = await request.body()
-        payload = json.loads(body)
-
-        tags = payload.pop('tags', [])
-        categories = payload.pop('categories', [])
-
-        # Comando SQL para inserir um novo artigo na tabela
-        insert_query = sql.SQL("INSERT INTO blog.posts ({}) VALUES ({})").format(
-            sql.SQL(', ').join(map(sql.Identifier, ['title', 'url', 'slug', 'author_id', 'created', 'published', 'updated', 'body', 'summary', 'seo_title', 'meta_description', 'status', 'deleted', 'featured_image', 'featured_image_alt'])),
-            sql.SQL(', ').join(sql.Placeholder() * len(payload)))
-
-        # Executa o comando SQL para inserir o novo artigo
-        cursor.execute(insert_query, (
-            payload.get('title'),
-            payload.get('url'),
-            payload.get('slug'),
-            payload.get('author_id'),
-            payload.get('created'),
-            payload.get('published'),
-            payload.get('updated'),
-            payload.get('body'),
-            payload.get('summary'),
-            payload.get('seo_title'),
-            payload.get('meta_description'),
-            payload.get('status'),
-            payload.get('deleted'),
-            payload.get('featured_image'),
-            payload.get('featured_image_alt'),
-        ))
-
-        for tag in tags:
-            cursor.execute("INSERT INTO blog.tags (name, slug) VALUES (%s, %s)", (tag['name'], tag['slug']))
-
-        # Por exemplo, atualizar a tabela 'categories'
-        for category in categories:
-            cursor.execute("INSERT INTO blog.categories (name, slug) VALUES (%s, %s)", (category['name'], category['slug']))
-
-        # Obtém o ID do artigo recém-inserido
-        conn.commit()
-
-        cursor.execute("SELECT * FROM blog.posts WHERE post_id = LASTVAL()")
-
-        new_article = cursor.fetchone()
-
-        cursor.close()
-        conn.close()
-        # Retorna uma resposta de sucesso
-        return {'status': 'success', 'message': 'Artigo criado com sucesso!', 'article': new_article}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/categories")
 def get_categories():
     try:
@@ -230,3 +134,209 @@ def get_tags():
         return {'status': 'success', 'data': tags_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def execute_insert_query(query, values):
+    try:
+        with psycopg2.connect(**db_connection_tokapi) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, values)
+                conn.commit()
+                return cursor.fetchone()[0] 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def post_categories(categories: list):
+    query = "INSERT INTO blog.categories (name, slug) VALUES (%s, %s) RETURNING category_id"
+    category_ids = []
+    for category in categories:
+        category_id = execute_insert_query(query, (category['name'], category['slug']))
+        category_ids.append(category_id)
+    return category_ids
+
+def post_tags(tags: list):
+    query = "INSERT INTO blog.tags (name, slug) VALUES (%s, %s) RETURNING tag_id"
+    tag_ids = []
+    for tag in tags:
+        tag_id = execute_insert_query(query, (tag['name'], tag['slug']))
+        tag_ids.append(tag_id)
+    return tag_ids
+
+def post_featured_image(featured_image: dict):
+    query = """
+        INSERT INTO blog.featured_image 
+        (data, last_modified, last_modified_date, name, size, type, webkit_relative_path) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING featured_image
+    """
+    values = (
+        featured_image.get('data'),
+        featured_image.get('last_modified'),
+        featured_image.get('last_modified_date'),
+        featured_image.get('name'),
+        featured_image.get('size'),
+        featured_image.get('type'),
+        featured_image.get('webkit_relative_path')
+    )
+    return execute_insert_query(query, values)
+
+def insert_post_category_relations(cursor, post_id: int, category_ids: list):
+    query = "INSERT INTO blog.posts_categories_relation (post_id, category_id) VALUES (%s, %s)"
+    for category_id in category_ids:
+        cursor.execute(query, (post_id, category_id))
+
+def insert_post_tag_relations(cursor, post_id: int, tag_ids: list):
+    query = "INSERT INTO blog.posts_tags_relation (post_id, tag_id) VALUES (%s, %s)"
+    for tag_id in tag_ids:
+        cursor.execute(query, (post_id, tag_id))
+
+@app.post("/post/create")
+async def post_create(request: Request):
+    body = await request.body()
+    payload = json.loads(body)
+    tags = payload.pop('tags', [])
+    categories = payload.pop('categories', [])
+    featured_image = payload.pop('featured_image', None)
+    category_ids = []
+    tag_ids = []
+
+    try:
+      with psycopg2.connect(**db_connection_tokapi) as conn:
+          with conn.cursor() as cursor:
+              if categories:
+                  category_ids = post_categories(categories)
+              if tags:
+                  tag_ids = post_tags(tags)
+              if featured_image:
+                featured_image_id = post_featured_image(featured_image)
+              if featured_image_id:
+                payload['featured_image'] = featured_image_id
+
+
+              insert_query = sql.SQL("INSERT INTO blog.posts ({}) VALUES ({}) RETURNING *").format(
+                  sql.SQL(', ').join(map(sql.Identifier, payload.keys())),
+                  sql.SQL(', ').join(sql.Placeholder() * len(payload))
+              )
+
+              cursor.execute(insert_query, tuple(payload.values()))
+              new_post_id = cursor.fetchone()[0]
+              new_article = cursor.fetchone()
+
+              insert_post_category_relations(cursor, new_post_id, category_ids)
+              insert_post_tag_relations(cursor, new_post_id, tag_ids)
+
+              conn.commit()
+
+      return {'status': 'success', 'message': 'Artigo criado com sucesso!', 'article': new_article}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+
+@app.patch("/post/update/{post_id}")
+async def update_post(request: Request, post_id: int):
+    try:
+        payload = await request.json()
+        
+        # Conecta-se ao banco de dados PostgreSQL
+        conn = psycopg2.connect(**db_connection_tokapi)
+        cursor = conn.cursor()
+
+        # Comando SQL para atualizar o post na tabela
+        update_query = """
+            UPDATE blog.posts 
+            SET 
+                title = %s,
+                url = %s,
+                slug = %s,
+                author_id = %s,
+                created = %s,
+                published = %s,
+                updated = %s,
+                body = %s,
+                summary = %s,
+                seo_title = %s,
+                meta_description = %s,
+                status = %s,
+                deleted = %s,
+                featured_image_alt = %s
+            WHERE post_id = %s
+        """
+        
+        # Extrai os valores do payload
+        post_values = (
+            payload.get('title'),
+            payload.get('url'),
+            payload.get('slug'),
+            payload.get('author_id'),
+            payload.get('created'),
+            payload.get('published'),
+            payload.get('updated'),
+            payload.get('body'),
+            payload.get('summary'),
+            payload.get('seo_title'),
+            payload.get('meta_description'),
+            payload.get('status'),
+            payload.get('deleted'),
+            payload.get('featured_image_alt'),
+            post_id
+        )
+
+        # Executa o comando SQL para atualizar o post
+        cursor.execute(update_query, post_values)
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return {'status': 'success', 'message': 'Post atualizado com sucesso!'}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/search/{text}")
+def search_posts_by_keyword(text: str):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        query = sql.SQL("SELECT * FROM blog.posts WHERE body ILIKE {}").format(sql.Literal(f"%{text}%"))
+        cursor.execute(query)
+        posts = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        if posts:
+            # Mapear os resultados para uma lista de dicionários com a estrutura desejada
+            posts_json = []
+            for post in posts:
+                post_json = {
+                    'post_id': post[0],
+                    'title': post[1],
+                    'url': post[2],
+                    'slug': post[3],
+                    'author_id': post[4],
+                    'created': post[5].isoformat() if post[5] else None,
+                    'published': post[6].isoformat() if post[6] else None,
+                    'updated': post[7].isoformat() if post[7] else None,
+                    'body': post[8],
+                    'summary': post[9],
+                    'seo_title': post[10],
+                    'meta_description': post[11],
+                    'status': post[12],
+                    'deleted': post[13],
+                    'featured_image': post[14],
+                    'featured_image_alt': post[15]
+                }
+                posts_json.append(post_json)
+            
+            return {'status': 'success', 'data': posts_json}
+        else:
+            # Se não houver posts encontrados, retorne uma resposta de erro
+            raise HTTPException(status_code=404, detail="Nenhum post encontrado com a palavra-chave fornecida")
+    except Exception as e:
+        # Em caso de erro, retorne uma resposta de erro com status 500
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+
+# search_posts_by_keyword("asdasdaI")
