@@ -60,21 +60,37 @@ def get_tags_from_db():
     conn = get_connection()
     return execute_query(query, conn)
 
+def get_featured_image_from_db():
+    query = "SELECT * FROM blog.featured_image"
+    conn = get_connection()
+    return execute_query(query, conn)
+
 @app.get("/post")
 def get_posts():
+    posts_json = []
+    posts = get_posts_from_db()
     try:
-        posts = get_posts_from_db()
-        posts_json = [{'post_id': post[0], 'title': post[1], 'url': post[2], 'slug': post[3], 
+        for post in posts:
+            post_dict = {'post_id': post[0], 'title': post[1], 'url': post[2], 'slug': post[3], 
                       'author_id': post[4], 'created': post[5], 'published': post[6], 'updated': post[7], 
                       'body': post[8], 'summary': post[9], 'seo_title': post[10], 'meta_description': post[11], 
-                      'status': post[12], 'deleted': post[13], 'featured_image': post[14], 'featured_image_alt': post[15]}
-                      for post in posts]
+                      'status': post[12], 'deleted': post[13], 'featured_image': post[14], 'featured_image_alt': post[15]
+                      }
+                      
+        
+            featured_image_data = get_featured_image(post[14])
+            if featured_image_data:
+                post_dict['featured_image'] = featured_image_data
+
+            posts_json.append(post_dict)
+                      
         return {'status': 'success', 'data': posts_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/post/{post_id}")
 def get_post_by_id_from_db(post_id: int):
+    posts_json = []
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -88,9 +104,7 @@ def get_post_by_id_from_db(post_id: int):
 
         if post:
             # Mapear os resultados para um dicionário com a estrutura desejada
-            post_json = {
-                'status': 'success',
-                'data': {
+            post_dict = {
                     'post_id': post[0],
                     'title': post[1],
                     'url': post[2],
@@ -108,13 +122,18 @@ def get_post_by_id_from_db(post_id: int):
                     'featured_image': post[14],
                     'featured_image_alt': post[15]
                 }
-            }
-            return post_json
+            featured_image_data = get_featured_image(post[14])
+            if featured_image_data:
+                post_dict['featured_image'] = featured_image_data
+
+            posts_json.append(post_dict)
+            
+            return posts_json[0]
         else:
-            # Se não houver post encontrado, retorne uma resposta de erro
+
             raise HTTPException(status_code=404, detail="Post não encontrado")
     except Exception as e:
-        # Em caso de erro, retorne uma resposta de erro com status 500
+
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/categories")
@@ -125,6 +144,36 @@ def get_categories():
         return {'status': 'success', 'data': categories_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def get_featured_image(featured_image_id  : int):
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            query = sql.SQL("SELECT * FROM blog.featured_image WHERE featured_image = {}").format(sql.Literal(featured_image_id))
+            cursor.execute(query)
+            featured_image = cursor.fetchone()
+
+            cursor.close()
+            conn.close()
+
+            if featured_image:
+                featured_image_json = {
+                        'data': featured_image[1], 
+                        'last_modified': featured_image[2], 
+                        'last_modified_date': featured_image[3], 
+                        'name': featured_image[4], 
+                        'size': featured_image[5], 
+                        'type': featured_image[6], 
+                        'webkit_relative_path': featured_image[7]
+                    }
+                return featured_image_json
+            else:
+            # Se não houver post encontrado, retorne uma resposta de erro
+                print(featured_image)
+                # raise HTTPException(status_code=404, detail="Imagem não encontrado")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tags")
 def get_tags():
@@ -235,6 +284,13 @@ async def post_create(request: Request):
 async def update_post(request: Request, post_id: int):
     try:
         payload = await request.json()
+        featured_image = payload.pop('featured_image', None)
+
+        if featured_image:
+            featured_image_id = post_featured_image(featured_image)
+        if featured_image_id:
+            payload['featured_image'] = featured_image_id
+
         
         # Conecta-se ao banco de dados PostgreSQL
         conn = psycopg2.connect(**db_connection_tokapi)
@@ -256,12 +312,13 @@ async def update_post(request: Request, post_id: int):
                 seo_title = %s,
                 meta_description = %s,
                 status = %s,
-                deleted = %s,
+                featured_image = %s,
                 featured_image_alt = %s
             WHERE post_id = %s
         """
         
         # Extrai os valores do payload
+        print(payload.get('featured_image'))
         post_values = (
             payload.get('title'),
             payload.get('url'),
@@ -275,7 +332,7 @@ async def update_post(request: Request, post_id: int):
             payload.get('seo_title'),
             payload.get('meta_description'),
             payload.get('status'),
-            payload.get('deleted'),
+            payload.get('featured_image'),
             payload.get('featured_image_alt'),
             post_id
         )
@@ -339,4 +396,4 @@ def search_posts_by_keyword(text: str):
     
 
 
-# search_posts_by_keyword("asdasdaI")
+get_featured_image(32)
