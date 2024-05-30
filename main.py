@@ -317,7 +317,7 @@ def search_posts_by_keyword(text: str):
         # Em caso de erro, retorne uma resposta de erro com status 500
         raise HTTPException(status_code=500, detail=str(e))
     
-@app.get("/post")
+@app.get("/posts")
 def get_posts():
     posts_json = []
     posts = get_posts_from_db()
@@ -340,7 +340,7 @@ def get_posts():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/post/{post_id}")
+@app.get("/posts/{post_id}")
 def get_post_by_id_from_db(post_id: int):
     posts_json = []
     try:
@@ -460,7 +460,7 @@ def get_posts_by_category_id(category_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/post/create")
+@app.post("/posts/create")
 async def post_create(request: Request):
     body = await request.body()
     payload = json.loads(body)
@@ -531,7 +531,7 @@ def patch_featured_image(featured_image: dict, featured_image_id: int):
     return featured_image_id
 
 
-@app.patch("/post/update/{post_id}")
+@app.patch("/posts/update/{post_id}")
 async def update_post(request: Request, post_id: int):
     try:
         # Conecta-se ao banco de dados PostgreSQL
