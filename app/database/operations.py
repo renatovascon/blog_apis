@@ -9,8 +9,6 @@ def execute_query(query, values=None, fetch_one=False, fetch_all=False):
             with conn.cursor() as cursor:
                 cursor.execute(query, values)
                 conn.commit()
-                print('query', query)
-                print('values', values)
                 if fetch_one:
                     return cursor.fetchone()
                 if fetch_all:
@@ -186,8 +184,6 @@ def post_featured_image(featured_image: dict):
     return execute_insert_query(query, values)
 
 def insert_post_category_relations(post_id: int, category_ids: list):
-    print('post_id', post_id)
-    print('category_ids', category_ids)
     manage_relations(post_id, category_ids, "blog.posts_categories_relation", "category_id")
 
 def insert_post_tag_relations(post_id: int, tag_ids: list):
