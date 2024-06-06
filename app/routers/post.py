@@ -62,19 +62,6 @@ def get_posts_by_category_id(category_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/search/{text}", response_model=List[Post_Response])
-def search_posts_by_keyword(text: str):
-    try:
-        query = sql.SQL("SELECT * FROM blog.posts WHERE body ILIKE {}").format(sql.Literal(f"%{text}%"))
-        posts = execute_query(query, fetch_all=True)
-        if posts:
-            posts_json = [map_post_to_json(post) for post in posts]
-            return {'status': 'success', 'data': posts_json}
-        else:
-            raise HTTPException(status_code=404, detail="Nenhum post encontrado com a palavra-chave fornecida")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.post("/posts/create")
 async def post_create(request: Request):
     body = await request.body()
@@ -113,7 +100,6 @@ async def post_create(request: Request):
 
 @router.patch("/posts/update/{post_id}")
 async def update_post(post_id: int, request: Request):
-# async def update_post(request: Request, post_id: int):
     try:
         payload = await request.json()
         featured_image = payload.pop('featured_image', None)
